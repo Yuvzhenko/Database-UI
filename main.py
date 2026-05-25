@@ -300,12 +300,215 @@ class ProjectsPage(tk.Frame):
 class BuildersPage(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, bg="#f5f6fa")
+        self.controller = controller
+        self.setup_ui()
+
+    def setup_ui(self):
+        title = tk.Label(self, text="Управління Персоналом (таблиця `builders`)", 
+                         font=("Arial", 18, "bold"), bg="#f5f6fa", fg="#2c3e50")
+        title.pack(anchor="w", padx=20, pady=15)
         
-        title = tk.Label(self, text="Управління Персоналом", font=("Arial", 18, "bold"), bg="#f5f6fa", fg="#2c3e50")
-        title.pack(anchor="w", padx=20, pady=20)
+        top_management_frame = tk.Frame(self, bg="#f5f6fa")
+        top_management_frame.pack(fill=tk.X, padx=20, pady=5)
         
-        content_frame = tk.LabelFrame(self, text="Панель дій для будівельників", font=("Arial", 10, "bold"), bg="white", padx=15, pady=15)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        self.action_var = tk.StringVar(value="SELECT")
+        radio_frame = tk.LabelFrame(top_management_frame, text=" Оберіть операцію ", font=("Arial", 10, "bold"), bg="white", padx=10, pady=5)
+        radio_frame.pack(side=tk.LEFT, anchor="nw")
+
+        tk.Radiobutton(radio_frame, text="Отримати (SELECT)", variable=self.action_var, value="SELECT", bg="white").pack(anchor="w")
+        tk.Radiobutton(radio_frame, text="Додати (INSERT)", variable=self.action_var, value="INSERT", bg="white").pack(anchor="w")
+        tk.Radiobutton(radio_frame, text="Оновити (UPDATE)", variable=self.action_var, value="UPDATE", bg="white").pack(anchor="w")
+        tk.Radiobutton(radio_frame, text="Вилучити (DELETE)", variable=self.action_var, value="DELETE", bg="white").pack(anchor="w")
+
+        input_frame = tk.LabelFrame(self, text=" Поля запису таблиці `builders` ", font=("Arial", 10, "bold"), bg="white", padx=10, pady=10)
+        input_frame.pack(fill=tk.X, padx=20, pady=15)
+
+        labels = ["Паспорт", "ПІБ", "Досвід", "Кваліфікація", "Дата нар.(РРРР-ММ-ДД)", "Паспорт (Б)", "Паспорт (М)"]
+        self.entries = {}
+        db_keys = ["passport", "name", "experience", "qualification", "birth_date", "passport_f", "passport_m"]
+
+        for i, label_text in enumerate(labels):
+            tk.Label(input_frame, text=label_text, bg="white", font=("Arial", 9)).grid(row=0, column=i, padx=5, sticky="w")
+            
+            if db_keys[i] == "qualification":
+                entry = ttk.Combobox(input_frame, width=12, values=["Introduction", "Intermediate", "Advanced"])
+            else:
+                entry_width = 25 if db_keys[i] == "name" else 10
+                entry = tk.Entry(input_frame, width=entry_width)
+            
+            entry.grid(row=1, column=i, padx=5, pady=5)
+            self.entries[db_keys[i]] = entry
+
+        bottom_frame = tk.Frame(self, bg="#f5f6fa")
+        bottom_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
+
+        btn_frame = tk.Frame(bottom_frame, bg="#f5f6fa")
+        btn_frame.pack(side=tk.LEFT, anchor="nw", pady=20, padx=(0, 20))
+
+        tk.Button(btn_frame, text="Виконати\nзапит", width=14, height=3, 
+                  bg="#1abc9c", fg="white", font=("Arial", 11, "bold"), 
+                  relief=tk.RAISED, command=self.execute_query).pack(pady=(0, 10))
+
+        tk.Button(btn_frame, text="Очистити\nполя", width=14, height=3, 
+                  bg="#95a5a6", fg="white", font=("Arial", 11, "bold"), 
+                  relief=tk.RAISED, command=self.clear_entries).pack()
+
+        result_frame = tk.Frame(bottom_frame, bg="#f5f6fa")
+        result_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        self.status_label = tk.Label(result_frame, text="", font=("Arial", 10, "bold"), bg="#f5f6fa", fg="#27ae60")
+        self.status_label.pack(anchor="w", pady=(0, 5))
+
+        columns = ("passport", "name", "experience", "qualification", "birth_date", "passport_f", "passport_m")
+        self.tree = ttk.Treeview(result_frame, columns=columns, show="headings", height=10)
+
+        self.tree.heading("passport", text="Паспорт")
+        self.tree.heading("name", text="ПІБ")
+        self.tree.heading("experience", text="Досвід")
+        self.tree.heading("qualification", text="Кваліфікація")
+        self.tree.heading("birth_date", text="Дата нар.")
+        self.tree.heading("passport_f", text="Паспорт (Б)")
+        self.tree.heading("passport_m", text="Паспорт (М)")
+
+        self.tree.column("passport", width=80, anchor="center")
+        self.tree.column("name", width=220, anchor="w")
+        self.tree.column("experience", width=80, anchor="center")
+        self.tree.column("qualification", width=100, anchor="center")
+        self.tree.column("birth_date", width=90, anchor="center")
+        self.tree.column("passport_f", width=80, anchor="center")
+        self.tree.column("passport_m", width=80, anchor="center")
+
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scrollbar_y = ttk.Scrollbar(result_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.configure(yscroll=scrollbar_y.set)
+
+    def clear_entries(self):
+        for entry in self.entries.values():
+            if isinstance(entry, ttk.Combobox):
+                entry.set("")
+            else:
+                entry.delete(0, tk.END)
+
+    def execute_query(self):
+        action = self.action_var.get()
+        
+        self.status_label.config(text="", fg="#27ae60")
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        conn = self.controller.get_db_connection()
+        if not conn:
+            return
+
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            if action == "SELECT":
+                query = "SELECT * FROM builders WHERE 1=1"
+                params = []
+                
+                if self.entries['passport'].get():
+                    query += " AND passport = %s"
+                    params.append(self.entries['passport'].get())
+                    
+                if self.entries['name'].get():
+                    query += " AND name LIKE %s"
+                    params.append(f"%{self.entries['name'].get()}%")
+                    
+                if self.entries['experience'].get():
+                    query += " AND experience LIKE %s"
+                    params.append(f"%{self.entries['experience'].get()}%")
+                    
+                if self.entries['qualification'].get():
+                    query += " AND qualification_level = %s"
+                    params.append(self.entries['qualification'].get())
+                    
+                if self.entries['birth_date'].get():
+                    query += " AND birth_date = %s"
+                    params.append(self.entries['birth_date'].get())
+                    
+                if self.entries['passport_f'].get():
+                    query += " AND passport_f = %s"
+                    params.append(self.entries['passport_f'].get())
+                    
+                if self.entries['passport_m'].get():
+                    query += " AND passport_m = %s"
+                    params.append(self.entries['passport_m'].get())
+                    
+                cursor.execute(query, tuple(params))
+                rows = cursor.fetchall()
+                
+                if rows:
+                    for row in rows:
+                        self.tree.insert("", tk.END, values=(
+                            row['passport'], row['name'], row['experience'], 
+                            row['qualification_level'], row['birth_date'], 
+                            row['passport_f'], row['passport_m']
+                        ))
+                    self.status_label.config(text=f"Успіх: Знайдено {len(rows)} записів.", fg="#27ae60")
+                else:
+                    self.status_label.config(text="Записів не знайдено.", fg="#e67e22")
+
+            elif action == "INSERT":
+                if not self.entries['passport'].get():
+                    raise ValueError("Паспорт є обов'язковим для додавання.")
+                    
+                query = """INSERT INTO builders (passport, name, experience, qualification_level, birth_date, passport_f, passport_m) 
+                           VALUES (%s, %s, %s, %s, %s, %s, %s)"""
+                params = (
+                    self.entries['passport'].get(),
+                    self.entries['name'].get() or None,
+                    self.entries['experience'].get() or None,
+                    self.entries['qualification'].get() or None,
+                    self.entries['birth_date'].get() or None,
+                    self.entries['passport_f'].get() or None,
+                    self.entries['passport_m'].get() or None
+                )
+                cursor.execute(query, params)
+                conn.commit()
+                self.status_label.config(text=f"Успішно додано: {self.entries['passport'].get()}")
+
+            elif action == "UPDATE":
+                if not self.entries['passport'].get():
+                    raise ValueError("Необхідно вказати паспорт для оновлення.")
+                
+                query = """UPDATE builders SET name=%s, experience=%s, qualification_level=%s, birth_date=%s, passport_f=%s, passport_m=%s 
+                           WHERE passport=%s"""
+                params = (
+                    self.entries['name'].get() or None,
+                    self.entries['experience'].get() or None,
+                    self.entries['qualification'].get() or None,
+                    self.entries['birth_date'].get() or None,
+                    self.entries['passport_f'].get() or None,
+                    self.entries['passport_m'].get() or None,
+                    self.entries['passport'].get()
+                )
+                cursor.execute(query, params)
+                conn.commit()
+                if cursor.rowcount == 0:
+                    self.status_label.config(text="Запис не знайдено.", fg="#e67e22")
+                else:
+                    self.status_label.config(text=f"Оновлено. Змінено рядків: {cursor.rowcount}")
+
+            elif action == "DELETE":
+                if not self.entries['passport'].get():
+                    raise ValueError("Необхідно вказати паспорт для видалення.")
+                
+                query = "DELETE FROM builders WHERE passport=%s"
+                cursor.execute(query, (self.entries['passport'].get(),))
+                conn.commit()
+                if cursor.rowcount == 0:
+                    self.status_label.config(text="Запис не знайдено.", fg="#e67e22")
+                else:
+                    self.status_label.config(text=f"Видалено. Вилучено рядків: {cursor.rowcount}")
+
+        except Exception as e:
+            self.status_label.config(text=f"Помилка: {e}", fg="#e74c3c")
+        finally:
+            cursor.close()
+            conn.close()
 
 
 class CompaniesPage(tk.Frame):
@@ -493,12 +696,207 @@ class CompaniesPage(tk.Frame):
 class SubdivisionsPage(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, bg="#f5f6fa")
+        self.controller = controller
+        self.setup_ui()
+        self.load_companies()
+
+    def setup_ui(self):
+        title = tk.Label(self, text="Управління Підрозділами (таблиця `subdivisions`)", 
+                         font=("Arial", 18, "bold"), bg="#f5f6fa", fg="#2c3e50")
+        title.pack(anchor="w", padx=20, pady=15)
         
-        title = tk.Label(self, text="Підрозділи компаній", font=("Arial", 18, "bold"), bg="#f5f6fa", fg="#2c3e50")
-        title.pack(anchor="w", padx=20, pady=20)
+        top_management_frame = tk.Frame(self, bg="#f5f6fa")
+        top_management_frame.pack(fill=tk.X, padx=20, pady=5)
         
-        content_frame = tk.LabelFrame(self, text="Панель дій для підрозділів", font=("Arial", 10, "bold"), bg="white", padx=15, pady=15)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        self.action_var = tk.StringVar(value="SELECT")
+        radio_frame = tk.LabelFrame(top_management_frame, text=" Оберіть операцію ", font=("Arial", 10, "bold"), bg="white", padx=10, pady=5)
+        radio_frame.pack(side=tk.LEFT, anchor="nw")
+
+        tk.Radiobutton(radio_frame, text="Отримати (SELECT)", variable=self.action_var, value="SELECT", bg="white").pack(anchor="w")
+        tk.Radiobutton(radio_frame, text="Додати (INSERT)", variable=self.action_var, value="INSERT", bg="white").pack(anchor="w")
+        tk.Radiobutton(radio_frame, text="Оновити за назвою (UPDATE)", variable=self.action_var, value="UPDATE", bg="white").pack(anchor="w")
+        tk.Radiobutton(radio_frame, text="Вилучити за назвою (DELETE)", variable=self.action_var, value="DELETE", bg="white").pack(anchor="w")
+
+        input_frame = tk.LabelFrame(self, text=" Поля запису таблиці `subdivisions` ", font=("Arial", 10, "bold"), bg="white", padx=10, pady=10)
+        input_frame.pack(fill=tk.X, padx=20, pady=15)
+
+        labels = ["Назва підрозділу", "Кількість працівників", "Кількість спецтехніки", "Компанія (ЄДРПОУ)"]
+        self.entries = {}
+        db_keys = ["name", "workers_quantity", "special_equipment_quantity", "company"]
+
+        for i, label_text in enumerate(labels):
+            tk.Label(input_frame, text=label_text, bg="white", font=("Arial", 9)).grid(row=0, column=i, padx=5, sticky="w")
+            
+            if db_keys[i] == "company":
+                self.company_cb = ttk.Combobox(input_frame, width=18, state="readonly")
+                self.company_cb.grid(row=1, column=i, padx=5, pady=5)
+                self.entries["company"] = self.company_cb
+            else:
+                entry_width = 30 if db_keys[i] == "name" else 15
+                entry = tk.Entry(input_frame, width=entry_width)
+                entry.grid(row=1, column=i, padx=5, pady=5)
+                self.entries[db_keys[i]] = entry
+
+        bottom_frame = tk.Frame(self, bg="#f5f6fa")
+        bottom_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
+
+        btn_frame = tk.Frame(bottom_frame, bg="#f5f6fa")
+        btn_frame.pack(side=tk.LEFT, anchor="nw", pady=20, padx=(0, 20))
+
+        tk.Button(btn_frame, text="Виконати\nзапит", width=14, height=3, 
+                  bg="#1abc9c", fg="white", font=("Arial", 11, "bold"), 
+                  relief=tk.RAISED, command=self.execute_query).pack(pady=(0, 10))
+
+        tk.Button(btn_frame, text="Очистити\nполя", width=14, height=3, 
+                  bg="#95a5a6", fg="white", font=("Arial", 11, "bold"), 
+                  relief=tk.RAISED, command=self.clear_entries).pack()
+
+        result_frame = tk.Frame(bottom_frame, bg="#f5f6fa")
+        result_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        self.status_label = tk.Label(result_frame, text="", font=("Arial", 10, "bold"), bg="#f5f6fa", fg="#27ae60")
+        self.status_label.pack(anchor="w", pady=(0, 5))
+
+        columns = ("name", "workers_quantity", "special_equipment_quantity", "company")
+        self.tree = ttk.Treeview(result_frame, columns=columns, show="headings", height=10)
+
+        self.tree.heading("name", text="Назва підрозділу")
+        self.tree.heading("workers_quantity", text="Кількість працівників")
+        self.tree.heading("special_equipment_quantity", text="Кількість спецтехніки")
+        self.tree.heading("company", text="Компанія (ЄДРПОУ)")
+
+        self.tree.column("name", width=250, anchor="w")
+        self.tree.column("workers_quantity", width=120, anchor="center")
+        self.tree.column("special_equipment_quantity", width=120, anchor="center")
+        self.tree.column("company", width=120, anchor="center")
+
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scrollbar_y = ttk.Scrollbar(result_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.configure(yscroll=scrollbar_y.set)
+
+    def load_companies(self):
+        conn = self.controller.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT USREOU FROM construction_companies")
+                companies = [row[0] for row in cursor.fetchall()]
+                companies.insert(0, "")
+                self.company_cb['values'] = companies
+            except Error as e:
+                print(f"Error loading companies: {e}")
+            finally:
+                cursor.close()
+                conn.close()
+
+    def clear_entries(self):
+        for entry in self.entries.values():
+            if isinstance(entry, ttk.Combobox):
+                entry.set("")
+            else:
+                entry.delete(0, tk.END)
+
+    def execute_query(self):
+        action = self.action_var.get()
+        
+        self.status_label.config(text="", fg="#27ae60")
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        conn = self.controller.get_db_connection()
+        if not conn:
+            return
+
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            if action == "SELECT":
+                query = "SELECT * FROM subdivisions WHERE 1=1"
+                params = []
+                
+                if self.entries['name'].get():
+                    query += " AND name LIKE %s"
+                    params.append(f"%{self.entries['name'].get()}%")
+                    
+                if self.entries['workers_quantity'].get():
+                    query += " AND workers_quantity = %s"
+                    params.append(self.entries['workers_quantity'].get())
+                    
+                if self.entries['special_equipment_quantity'].get():
+                    query += " AND special_equipment_quantity = %s"
+                    params.append(self.entries['special_equipment_quantity'].get())
+                    
+                if self.entries['company'].get():
+                    query += " AND company = %s"
+                    params.append(self.entries['company'].get())
+                    
+                cursor.execute(query, tuple(params))
+                rows = cursor.fetchall()
+                
+                if rows:
+                    for row in rows:
+                        self.tree.insert("", tk.END, values=(
+                            row['name'], row['workers_quantity'], 
+                            row['special_equipment_quantity'], row['company']
+                        ))
+                    self.status_label.config(text=f"Успіх: Знайдено {len(rows)} записів.", fg="#27ae60")
+                else:
+                    self.status_label.config(text="Записів не знайдено.", fg="#e67e22")
+
+            elif action == "INSERT":
+                if not self.entries['name'].get() or not self.entries['company'].get():
+                    raise ValueError("Назва підрозділу та Компанія є обов'язковими для заповнення.")
+                    
+                query = """INSERT INTO subdivisions (name, workers_quantity, special_equipment_quantity, company) 
+                           VALUES (%s, %s, %s, %s)"""
+                params = (
+                    self.entries['name'].get(),
+                    self.entries['workers_quantity'].get() or None,
+                    self.entries['special_equipment_quantity'].get() or None,
+                    self.entries['company'].get()
+                )
+                cursor.execute(query, params)
+                conn.commit()
+                self.status_label.config(text=f"Успішно додано підрозділ: {self.entries['name'].get()}")
+
+            elif action == "UPDATE":
+                if not self.entries['name'].get():
+                    raise ValueError("Необхідно вказати назву підрозділу для оновлення.")
+                
+                query = """UPDATE subdivisions SET workers_quantity=%s, special_equipment_quantity=%s, company=%s 
+                           WHERE name=%s"""
+                params = (
+                    self.entries['workers_quantity'].get() or None,
+                    self.entries['special_equipment_quantity'].get() or None,
+                    self.entries['company'].get() or None,
+                    self.entries['name'].get()
+                )
+                cursor.execute(query, params)
+                conn.commit()
+                if cursor.rowcount == 0:
+                    self.status_label.config(text="Підрозділ з такою назвою не знайдено.", fg="#e67e22")
+                else:
+                    self.status_label.config(text=f"Оновлено. Змінено рядків: {cursor.rowcount}")
+
+            elif action == "DELETE":
+                if not self.entries['name'].get():
+                    raise ValueError("Необхідно вказати назву підрозділу для видалення.")
+                
+                query = "DELETE FROM subdivisions WHERE name=%s"
+                cursor.execute(query, (self.entries['name'].get(),))
+                conn.commit()
+                if cursor.rowcount == 0:
+                    self.status_label.config(text="Підрозділ з такою назвою не знайдено.", fg="#e67e22")
+                else:
+                    self.status_label.config(text=f"Видалено. Вилучено рядків: {cursor.rowcount}")
+
+        except Exception as e:
+            self.status_label.config(text=f"Помилка: {e}", fg="#e74c3c")
+        finally:
+            cursor.close()
+            conn.close()
 
 if __name__ == "__main__":
     app = MainApplication()
