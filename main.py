@@ -311,12 +311,184 @@ class BuildersPage(tk.Frame):
 class CompaniesPage(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, bg="#f5f6fa")
+        self.controller = controller
+        self.setup_ui()
+
+    def setup_ui(self):
+        title = tk.Label(self, text="Будівельні Організації (таблиця `construction_companies`)", 
+                         font=("Arial", 18, "bold"), bg="#f5f6fa", fg="#2c3e50")
+        title.pack(anchor="w", padx=20, pady=15)
         
-        title = tk.Label(self, text="Будівельні Компанії", font=("Arial", 18, "bold"), bg="#f5f6fa", fg="#2c3e50")
-        title.pack(anchor="w", padx=20, pady=20)
+        top_management_frame = tk.Frame(self, bg="#f5f6fa")
+        top_management_frame.pack(fill=tk.X, padx=20, pady=5)
         
-        content_frame = tk.LabelFrame(self, text="Реєстр компаній", font=("Arial", 10, "bold"), bg="white", padx=15, pady=15)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        self.action_var = tk.StringVar(value="SELECT")
+        radio_frame = tk.LabelFrame(top_management_frame, text=" Оберіть операцію ", font=("Arial", 10, "bold"), bg="white", padx=10, pady=5)
+        radio_frame.pack(side=tk.LEFT, anchor="nw")
+
+        tk.Radiobutton(radio_frame, text="Отримати компанії (SELECT)", variable=self.action_var, value="SELECT", bg="white").pack(anchor="w")
+        tk.Radiobutton(radio_frame, text="Додати компанію (INSERT)", variable=self.action_var, value="INSERT", bg="white").pack(anchor="w")
+        tk.Radiobutton(radio_frame, text="Оновити компанію за ЄДРПОУ (UPDATE)", variable=self.action_var, value="UPDATE", bg="white").pack(anchor="w")
+        tk.Radiobutton(radio_frame, text="Вилучити компанію за ЄДРПОУ (DELETE)", variable=self.action_var, value="DELETE", bg="white").pack(anchor="w")
+
+        input_frame = tk.LabelFrame(self, text=" Поля запису таблиці `construction_companies` ", font=("Arial", 10, "bold"), bg="white", padx=10, pady=10)
+        input_frame.pack(fill=tk.X, padx=20, pady=15)
+
+        labels = ["Код ЄДРПОУ (USREOU)", "Назва компанії", "Номер ліцензії", "Юридична адреса"]
+        self.entries = {}
+
+        for i, label_text in enumerate(labels):
+            tk.Label(input_frame, text=label_text, bg="white", font=("Arial", 9)).grid(row=0, column=i, padx=5, sticky="w")
+
+            entry_width = 35 if i == 3 else 20
+            entry = tk.Entry(input_frame, width=entry_width)
+            entry.grid(row=1, column=i, padx=5, pady=5)
+            
+            key = ["usreou", "name", "license_number", "legal_address"][i]
+            self.entries[key] = entry
+
+        bottom_frame = tk.Frame(self, bg="#f5f6fa")
+        bottom_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
+
+        btn_frame = tk.Frame(bottom_frame, bg="#f5f6fa")
+        btn_frame.pack(side=tk.LEFT, anchor="nw", pady=20, padx=(0, 20))
+
+        tk.Button(btn_frame, text="Виконати\nзапит", width=14, height=3, 
+                  bg="#1abc9c", fg="white", font=("Arial", 11, "bold"), 
+                  relief=tk.RAISED, command=self.execute_query).pack(pady=(0, 10))
+
+        tk.Button(btn_frame, text="Очистити\nполя", width=14, height=3, 
+                  bg="#95a5a6", fg="white", font=("Arial", 11, "bold"), 
+                  relief=tk.RAISED, command=self.clear_entries).pack()
+
+        result_frame = tk.Frame(bottom_frame, bg="#f5f6fa")
+        result_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        self.status_label = tk.Label(result_frame, text="", font=("Arial", 10, "bold"), bg="#f5f6fa", fg="#27ae60")
+        self.status_label.pack(anchor="w", pady=(0, 5))
+
+        columns = ("usreou", "name", "license", "address")
+        self.tree = ttk.Treeview(result_frame, columns=columns, show="headings", height=10)
+
+        self.tree.heading("usreou", text="ЄДРПОУ")
+        self.tree.heading("name", text="Назва компанії")
+        self.tree.heading("license", text="Ліцензія")
+        self.tree.heading("address", text="Юридична адреса")
+
+        self.tree.column("usreou", width=100, anchor="center")
+        self.tree.column("name", width=150, anchor="w")
+        self.tree.column("license", width=120, anchor="center")
+        self.tree.column("address", width=300, anchor="w")
+
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scrollbar_y = ttk.Scrollbar(result_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.configure(yscroll=scrollbar_y.set)
+
+    def clear_entries(self):
+        for entry in self.entries.values():
+            entry.delete(0, tk.END)
+
+    def execute_query(self):
+        action = self.action_var.get()
+        
+        self.status_label.config(text="", fg="#27ae60")
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        conn = self.controller.get_db_connection()
+        if not conn:
+            return
+
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            if action == "SELECT":
+                query = "SELECT * FROM construction_companies WHERE 1=1"
+                params = []
+
+                if self.entries['usreou'].get():
+                    query += " AND USREOU = %s"
+                    params.append(self.entries['usreou'].get())
+                    
+                if self.entries['name'].get():
+                    query += " AND name LIKE %s"
+                    params.append(f"%{self.entries['name'].get()}%")
+                    
+                if self.entries['license_number'].get():
+                    query += " AND license_number LIKE %s"
+                    params.append(f"%{self.entries['license_number'].get()}%")
+                    
+                if self.entries['legal_address'].get():
+                    query += " AND legal_address LIKE %s"
+                    params.append(f"%{self.entries['legal_address'].get()}%")
+                    
+                cursor.execute(query, tuple(params))
+                rows = cursor.fetchall()
+                
+                if rows:
+                    for row in rows:
+                        self.tree.insert("", tk.END, values=(
+                            row['USREOU'], row['name'], 
+                            row['license_number'], row['legal_address']
+                        ))
+                    self.status_label.config(text=f"Успіх: Знайдено {len(rows)} записів.", fg="#27ae60")
+                else:
+                    self.status_label.config(text="Записів за вказаними критеріями не знайдено.", fg="#e67e22")
+
+            elif action == "INSERT":
+                if not self.entries['usreou'].get():
+                    raise ValueError("Помилка: Код ЄДРПОУ є обов'язковим для додавання компанії.")
+                    
+                query = """INSERT INTO construction_companies (USREOU, name, license_number, legal_address) 
+                           VALUES (%s, %s, %s, %s)"""
+                params = (
+                    self.entries['usreou'].get(),
+                    self.entries['name'].get() or None,
+                    self.entries['license_number'].get() or None,
+                    self.entries['legal_address'].get() or None
+                )
+                cursor.execute(query, params)
+                conn.commit()
+                self.status_label.config(text=f"Успішно додано компанію з ЄДРПОУ: {self.entries['usreou'].get()}")
+
+            elif action == "UPDATE":
+                if not self.entries['usreou'].get():
+                    raise ValueError("Помилка: Необхідно вказати ЄДРПОУ компанії для оновлення.")
+                
+                query = """UPDATE construction_companies SET name=%s, license_number=%s, legal_address=%s 
+                           WHERE USREOU=%s"""
+                params = (
+                    self.entries['name'].get() or None,
+                    self.entries['license_number'].get() or None,
+                    self.entries['legal_address'].get() or None,
+                    self.entries['usreou'].get()
+                )
+                cursor.execute(query, params)
+                conn.commit()
+                if cursor.rowcount == 0:
+                    self.status_label.config(text="Компанію з таким ЄДРПОУ не знайдено.", fg="#e67e22")
+                else:
+                    self.status_label.config(text=f"Успішно оновлено. Змінено рядків: {cursor.rowcount}")
+
+            elif action == "DELETE":
+                if not self.entries['usreou'].get():
+                    raise ValueError("Помилка: Необхідно вказати ЄДРПОУ компанії для видалення.")
+                
+                query = "DELETE FROM construction_companies WHERE USREOU=%s"
+                cursor.execute(query, (self.entries['usreou'].get(),))
+                conn.commit()
+                if cursor.rowcount == 0:
+                    self.status_label.config(text="Компанію з таким ЄДРПОУ не знайдено.", fg="#e67e22")
+                else:
+                    self.status_label.config(text=f"Запис видалено. Вилучено рядків: {cursor.rowcount}")
+
+        except Exception as e:
+            self.status_label.config(text=f"Помилка: {e}", fg="#e74c3c")
+        finally:
+            cursor.close()
+            conn.close()
     
 class SubdivisionsPage(tk.Frame):
     def __init__(self, parent, controller):
